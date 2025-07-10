@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Projection Calculator (Live Data)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .input-group {
+            margin-bottom: 1rem;
+        }
+        .input-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #4b5563;
+        }
+        .input-field {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            background-color: #fff;
+        }
+        .input-field:read-only {
+            background-color: #f3f4f6;
+            cursor: not-allowed;
+        }
+        .input-field:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+        }
+        .scenario-card {
+            display: flex;
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+        .scenario-bar {
+            width: 1rem;
+            flex-shrink: 0;
+        }
+        /* Spinner for loading state */
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <h1 class="text-3xl md:text-4xl font-bold text-gray-900 mb-2">Stock Projection Calculator</h1>
+        <p class="text-gray-600 mb-8">Model future stock prices based on your growth expectations.</p>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Left Panel: Inputs -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-lg shadow-md h-fit">
+                <form id="projection-form" onsubmit="event.preventDefault(); calculateProjections();">
+                    
+                    <!-- Ticker Input -->
+                    <div class="input-group">
+                        <label for="ticker" class="input-label">Stock Ticker</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="ticker" class="input-field" placeholder="e.g., AAPL, GOOGL" value="AAPL">
+                            <button type="button" id="fetch-data-btn" class="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center w-32">
+                                <span id="fetch-btn-text">Fetch Data</span>
+                                <div id="spinner" class="spinner hidden"></div>
+                            </button>
+                        </div>
+                    </div>
+                     <div id="api-error-message" class="text-red-500 text-sm mb-4"></div>
+
+                    <!-- Company Name Display -->
+                    <div id="company-name-display" class="text-xl font-bold text-gray-800 mb-4 h-8"></div>
+
+                    <h3 class="text-lg font-semibold border-t pt-4 mt-6 mb-4 text-gray-700">Current Financials (Auto-filled)</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="input-group">
+                            <label for="ttmRevenue" class="input-label">TTM Revenue</label>
+                            <input type="number" id="ttmRevenue" class="input-field" readonly>
+                        </div>
+                        <div class="input-group">
+                            <label for="ttmPat" class="input-label">TTM PAT</label>
+                            <input type="number" id="ttmPat" class="input-field" readonly>
+                        </div>
+                        <div class="input-group">
+                            <label for="currentPrice" class="input-label">Current Price</label>
+                            <input type="number" id="currentPrice" class="input-field" readonly>
+                        </div>
+                         <div class="input-group">
+                            <label for="totalShares" class="input-label">Total Shares</label>
+                            <input type="number" id="totalShares" class="input-field" readonly>
+                        </div>
+                    </div>
+
+                    <h3 class="text-lg font-semibold border-t pt-4 mt-4 mb-4 text-gray-700">Your Projections (Manual Input)</h3>
+
+                    <div class="input-group">
+                        <label class="input-label">Target PE Ratio</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <input type="number" id="peBull" class="input-field text-center" value="35" placeholder="Bull">
+                            <input type="number" id="peBase" class="input-field text-center" value="30" placeholder="Base">
+                            <input type="number" id="peBear" class="input-field text-center" value="25" placeholder="Bear">
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label">Revenue Growth (%)</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <input type="number" id="revGrowthBull" class="input-field text-center" value="15" placeholder="Bull">
+                            <input type="number" id="revGrowthBase" class="input-field text-center" value="10" placeholder="Base">
+                            <input type="number" id="revGrowthBear" class="input-field text-center" value="5" placeholder="Bear">
+                        </div>
+                    </div>
+
+                     <div class="input-group">
+                        <label class="input-label">PAT Growth (%)</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <input type="number" id="patGrowthBull" class="input-field text-center" value="15" placeholder="Bull">
+                            <input type="number" id="patGrowthBase" class="input-field text-center" value="10" placeholder="Base">
+                            <input type="number" id="patGrowthBear" class="input-field text-center" value="5" placeholder="Bear">
+                        </div>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="exitYear" class="input-label">Exit Year (Years from now)</label>
+                        <input type="number" id="exitYear" class="input-field" value="5">
+                    </div>
+                    
+                    <div id="calc-error-message" class="text-red-500 text-sm mb-4"></div>
+
+                    <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition duration-300">
+                        Calculate Projections
+                    </button>
+                </form>
+            </div>
+
+            <!-- Right Panel: Outputs -->
+            <div class="lg:col-span-2">
+                <!-- Bull Case -->
+                <div class="scenario-card">
+                    <div class="scenario-bar bg-green-500"></div>
+                    <div class="p-6 w-full">
+                        <h2 class="text-2xl font-bold text-green-700 mb-4">Bull Case</h2>
+                        <div id="bull-results" class="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4"></div>
+                    </div>
+                </div>
+
+                <!-- Base Case -->
+                <div class="scenario-card">
+                    <div class="scenario-bar bg-yellow-500"></div>
+                    <div class="p-6 w-full">
+                        <h2 class="text-2xl font-bold text-yellow-700 mb-4">Base Case</h2>
+                        <div id="base-results" class="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4"></div>
+                    </div>
+                </div>
+
+                <!-- Bear Case -->
+                <div class="scenario-card">
+                    <div class="scenario-bar bg-red-500"></div>
+                    <div class="p-6 w-full">
+                        <h2 class="text-2xl font-bold text-red-700 mb-4">Bear Case</h2>
+                        <div id="bear-results" class="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- API Configuration ---
+        const API_KEY = '156OOODLFVDKPJ5M'; // Your Alpha Vantage API Key
+
+        // --- DOM Element References ---
+        const tickerEl = document.getElementById('ticker');
+        const fetchDataBtn = document.getElementById('fetch-data-btn');
+        const fetchBtnText = document.getElementById('fetch-btn-text');
+        const spinner = document.getElementById('spinner');
+        const apiErrorMessage = document.getElementById('api-error-message');
+        const calcErrorMessage = document.getElementById('calc-error-message');
+        const companyNameDisplay = document.getElementById('company-name-display');
+        
+        // Financial Input fields (now auto-filled)
+        const ttmRevenueEl = document.getElementById('ttmRevenue');
+        const ttmPatEl = document.getElementById('ttmPat');
+        const currentPriceEl = document.getElementById('currentPrice');
+        const totalSharesEl = document.getElementById('totalShares');
+        
+        // Projection Input fields
+        const exitYearEl = document.getElementById('exitYear');
+        const peBullEl = document.getElementById('peBull');
+        const peBaseEl = document.getElementById('peBase');
+        const peBearEl = document.getElementById('peBear');
+        const revGrowthBullEl = document.getElementById('revGrowthBull');
+        const revGrowthBaseEl = document.getElementById('revGrowthBase');
+        const revGrowthBearEl = document.getElementById('revGrowthBear');
+        const patGrowthBullEl = document.getElementById('patGrowthBull');
+        const patGrowthBaseEl = document.getElementById('patGrowthBase');
+        const patGrowthBearEl = document.getElementById('patGrowthBear');
+
+        // Output containers
+        const bullResultsEl = document.getElementById('bull-results');
+        const baseResultsEl = document.getElementById('base-results');
+        const bearResultsEl = document.getElementById('bear-results');
+
+        // --- Utility Functions ---
+        function formatNumber(num) {
+            if (isNaN(num) || num === null) return 'N/A';
+            return num.toLocaleString('en-US', { maximumFractionDigits: 2 });
+        }
+
+        function getFloatValue(element) {
+            return parseFloat(element.value) || 0;
+        }
+
+        function createMetricHTML(label, value, isHighlighted = false) {
+            const valueClass = isHighlighted 
+                ? 'font-bold text-lg text-blue-600' 
+                : 'font-semibold text-gray-700';
+            return `
+                <div>
+                    <p class="text-sm text-gray-500">${label}</p>
+                    <p class="${valueClass}">${value}</p>
+                </div>
+            `;
+        }
+        
+        function setLoadingState(isLoading) {
+            if (isLoading) {
+                fetchBtnText.classList.add('hidden');
+                spinner.classList.remove('hidden');
+                fetchDataBtn.disabled = true;
+            } else {
+                fetchBtnText.classList.remove('hidden');
+                spinner.classList.add('hidden');
+                fetchDataBtn.disabled = false;
+            }
+        }
+
+        // --- API Data Fetching ---
+        async function fetchFinancialData() {
+            const ticker = tickerEl.value.trim().toUpperCase();
+            if (!ticker) {
+                apiErrorMessage.textContent = 'Please enter a stock ticker.';
+                return;
+            }
+            
+            setLoadingState(true);
+            apiErrorMessage.textContent = '';
+            clearFinancials();
+            clearResults();
+
+            const overviewUrl = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${ticker}&apikey=${API_KEY}`;
+            const incomeUrl = `https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol=${ticker}&apikey=${API_KEY}`;
+            const quoteUrl = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${ticker}&apikey=${API_KEY}`;
+
+            try {
+                const [overviewRes, incomeRes, quoteRes] = await Promise.all([
+                    fetch(overviewUrl),
+                    fetch(incomeUrl),
+                    fetch(quoteUrl)
+                ]);
+
+                const overviewData = await overviewRes.json();
+                const incomeData = await incomeRes.json();
+                const quoteData = await quoteRes.json();
+                
+                // --- Error Handling for API Responses ---
+                if (overviewData.Note || incomeData.Note || quoteData.Note) {
+                    throw new Error('API limit reached. Please wait a minute and try again.');
+                }
+                if (!overviewData.Symbol || !incomeData.symbol || !quoteData['Global Quote'] || Object.keys(quoteData['Global Quote']).length === 0) {
+                     throw new Error(`Invalid ticker or no data available for "${ticker}".`);
+                }
+
+                populateFinancials(overviewData, incomeData, quoteData);
+
+            } catch (error) {
+                apiErrorMessage.textContent = error.message;
+                clearFinancials();
+            } finally {
+                setLoadingState(false);
+            }
+        }
+
+        function populateFinancials(overview, income, quote) {
+            const currencySymbol = overview.Currency === 'USD' ? '$' : '₹';
+
+            // Use latest annual report for TTM data
+            const latestAnnualReport = income.annualReports[0];
+            
+            // Convert numbers to millions or billions for easier reading if needed
+            const revenue = parseFloat(latestAnnualReport.totalRevenue) / 1_000_000;
+            const pat = parseFloat(latestAnnualReport.netIncome) / 1_000_000;
+            const shares = parseFloat(overview.SharesOutstanding) / 1_000_000;
+            const price = parseFloat(quote['Global Quote']['05. price']);
+
+            companyNameDisplay.textContent = overview.Name;
+            ttmRevenueEl.value = revenue.toFixed(2);
+            ttmPatEl.value = pat.toFixed(2);
+            totalSharesEl.value = shares.toFixed(2);
+            currentPriceEl.value = price.toFixed(2);
+            
+            // Update labels to show units
+            document.querySelector('label[for="ttmRevenue"]').textContent = `TTM Revenue (in M ${overview.Currency})`;
+            document.querySelector('label[for="ttmPat"]').textContent = `TTM PAT (in M ${overview.Currency})`;
+            document.querySelector('label[for="totalShares"]').textContent = `Total Shares (in M)`;
+            document.querySelector('label[for="currentPrice"]').textContent = `Current Price (${currencySymbol})`;
+        }
+        
+        function clearFinancials() {
+            companyNameDisplay.textContent = '';
+            ttmRevenueEl.value = '';
+            ttmPatEl.value = '';
+            totalSharesEl.value = '';
+            currentPriceEl.value = '';
+        }
+
+        function clearResults() {
+            bullResultsEl.innerHTML = '';
+            baseResultsEl.innerHTML = '';
+            bearResultsEl.innerHTML = '';
+        }
+
+        // --- Core Calculation Logic ---
+        function calculateProjections() {
+            const inputs = {
+                ttmRevenue: getFloatValue(ttmRevenueEl),
+                ttmPat: getFloatValue(ttmPatEl),
+                currentPrice: getFloatValue(currentPriceEl),
+                totalShares: getFloatValue(totalSharesEl),
+                exitYear: getFloatValue(exitYearEl),
+
+                pe: { bull: getFloatValue(peBullEl), base: getFloatValue(peBaseEl), bear: getFloatValue(peBearEl) },
+                revGrowth: { bull: getFloatValue(revGrowthBullEl) / 100, base: getFloatValue(revGrowthBaseEl) / 100, bear: getFloatValue(revGrowthBearEl) / 100 },
+                patGrowth: { bull: getFloatValue(patGrowthBullEl) / 100, base: getFloatValue(patGrowthBaseEl) / 100, bear: getFloatValue(patGrowthBearEl) / 100 }
+            };
+
+            if (inputs.totalShares <= 0 || inputs.currentPrice <= 0 || inputs.exitYear <= 0) {
+                calcErrorMessage.textContent = 'Fetched financial data and Exit Year must be positive numbers. Fetch data first.';
+                clearResults();
+                return;
+            }
+            calcErrorMessage.textContent = '';
+
+            const bullCalcs = calculateScenario(inputs, 'bull');
+            const baseCalcs = calculateScenario(inputs, 'base');
+            const bearCalcs = calculateScenario(inputs, 'bear');
+
+            displayResults(bullResultsEl, bullCalcs);
+            displayResults(baseResultsEl, baseCalcs);
+            displayResults(bearResultsEl, bearCalcs);
+        }
+
+        function calculateScenario(inputs, scenario) {
+            const { ttmRevenue, ttmPat, currentPrice, totalShares, exitYear } = inputs;
+            const revGrowth = inputs.revGrowth[scenario];
+            const patGrowth = inputs.patGrowth[scenario];
+            const futurePe = inputs.pe[scenario];
+
+            const futureRevenue = ttmRevenue * Math.pow(1 + revGrowth, exitYear);
+            const futurePat = ttmPat * Math.pow(1 + patGrowth, exitYear);
+            const futureMarketCap = futurePat * futurePe;
+            const futurePrice = futureMarketCap / totalShares;
+            const cagr = Math.pow(futurePrice / currentPrice, 1 / exitYear) - 1;
+
+            return { futureRevenue, futurePat, futurePe, futureMarketCap, futurePrice, cagr };
+        }
+
+        function displayResults(element, calcs) {
+            const currency = document.querySelector('label[for="currentPrice"]').textContent.includes('$') ? '$' : '₹';
+            const unit = document.querySelector('label[for="ttmRevenue"]').textContent.split(' ')[2]; // (in M USD) -> M
+            
+            element.innerHTML = `
+                ${createMetricHTML(`Projected Revenue (${unit})`, `${currency} ${formatNumber(calcs.futureRevenue)}`)}
+                ${createMetricHTML(`Projected PAT (${unit})`, `${currency} ${formatNumber(calcs.futurePat)}`)}
+                ${createMetricHTML('Projected PE', formatNumber(calcs.futurePe))}
+                ${createMetricHTML(`Projected Market Cap (${unit})`, `${currency} ${formatNumber(calcs.futureMarketCap)}`)}
+                ${createMetricHTML(`Projected Price`, `${currency} ${formatNumber(calcs.futurePrice)}`)}
+                ${createMetricHTML('CAGR Returns', `${(calcs.cagr * 100).toFixed(2)}%`, true)}
+            `;
+        }
+
+        // --- Event Listeners ---
+        fetchDataBtn.addEventListener('click', fetchFinancialData);
+        window.addEventListener('load', fetchFinancialData); // Fetch data for default ticker on load
+    </script>
+</body>
+</html>
