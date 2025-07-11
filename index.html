@@ -6,6 +6,8 @@
     <title>Stock Projection Calculator (Live Data)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- D3.js for Treemaps -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -23,6 +25,7 @@
         }
         ::-webkit-scrollbar-thumb:hover {
             background: #555;
+            border-radius: 4px;
         }
         .input-group {
             margin-bottom: 1rem;
@@ -76,6 +79,32 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        /* Treemap specific styles */
+        .treemap-container {
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+        .treemap-node text {
+            font-family: 'Inter', sans-serif;
+            font-size: 10px;
+            pointer-events: none;
+            fill: white;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        .treemap-node rect {
+            stroke: #fff;
+            fill: #4CAF50; /* Default fill color */
+        }
+        .treemap-node.expense rect {
+            fill: #F44336; /* Red for expenses */
+        }
+        .treemap-node.profit rect {
+            fill: #2196F3; /* Blue for profit */
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
@@ -100,7 +129,7 @@
                             </button>
                         </div>
                     </div>
-                     <div id="api-error-message" class="text-red-500 text-sm mb-4"></div>
+                    <div id="api-error-message" class="text-red-500 text-sm mb-4"></div>
 
                     <!-- Company Name Display -->
                     <div id="company-name-display" class="text-xl font-bold text-gray-800 mb-4 h-8"></div>
@@ -119,10 +148,60 @@
                             <label for="currentPrice" class="input-label">Current Price</label>
                             <input type="number" id="currentPrice" class="input-field" readonly>
                         </div>
-                         <div class="input-group">
+                        <div class="input-group">
                             <label for="totalShares" class="input-label">Total Shares</label>
                             <input type="number" id="totalShares" class="input-field" readonly>
                         </div>
+                        <div class="input-group">
+                            <label for="currentPE" class="input-label">Current PE Ratio</label>
+                            <input type="number" id="currentPE" class="input-field" readonly>
+                        </div>
+                        <div class="input-group">
+                            <label for="bookValue" class="input-label">Book Value Per Share</label>
+                            <input type="number" id="bookValue" class="input-field" readonly>
+                        </div>
+                        <div class="input-group">
+                            <label for="pbRatio" class="input-label">PB Ratio</label>
+                            <input type="number" id="pbRatio" class="input-field" readonly>
+                        </div>
+                        <!-- New fields added here -->
+                        <div class="input-group col-span-2">
+                            <label for="description" class="input-label">Description</label>
+                            <textarea id="description" class="input-field h-24 resize-y" readonly></textarea>
+                        </div>
+                        <div class="input-group">
+                            <label for="dividendYield" class="input-label">Dividend Yield</label>
+                            <input type="text" id="dividendYield" class="input-field" readonly>
+                        </div>
+                        <div class="input-group">
+                            <label for="dividendPerShare" class="input-label">Dividend Per Share</label>
+                            <input type="number" id="dividendPerShare" class="input-field" readonly>
+                        </div>
+                        <div class="input-group">
+                            <label for="exDividendDate" class="input-label">Ex-Dividend Date</label>
+                            <input type="text" id="exDividendDate" class="input-field" readonly>
+                        </div>
+                        <div class="input-group">
+                            <label for="ebitda" class="input-label">EBITDA</label>
+                            <input type="number" id="ebitda" class="input-field" readonly>
+                        </div>
+                        <div class="input-group">
+                            <label for="eps" class="input-label">EPS (TTM)</label>
+                            <input type="number" id="eps" class="input-field" readonly>
+                        </div>
+                        <div class="input-group">
+                            <label for="analystTargetPrice" class="input-label">Analyst Target Price</label>
+                            <input type="number" id="analystTargetPrice" class="input-field" readonly>
+                        </div>
+                        <div class="input-group">
+                            <label for="fiftyTwoWeekHigh" class="input-label">52 Week High</label>
+                            <input type="number" id="fiftyTwoWeekHigh" class="input-field" readonly>
+                        </div>
+                        <div class="input-group">
+                            <label for="fiftyTwoWeekLow" class="input-label">52 Week Low</label>
+                            <input type="number" id="fiftyTwoWeekLow" class="input-field" readonly>
+                        </div>
+                        <!-- End of new fields -->
                     </div>
 
                     <h3 class="text-lg font-semibold border-t pt-4 mt-4 mb-4 text-gray-700">Your Projections (Manual Input)</h3>
@@ -145,7 +224,7 @@
                         </div>
                     </div>
 
-                     <div class="input-group">
+                    <div class="input-group">
                         <label class="input-label">PAT Growth (%)</label>
                         <div class="grid grid-cols-3 gap-2">
                             <input type="number" id="patGrowthBull" class="input-field text-center" value="15" placeholder="Bull">
@@ -195,6 +274,19 @@
                         <div id="bear-results" class="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4"></div>
                     </div>
                 </div>
+
+                <!-- Treemaps Section -->
+                <h3 class="text-2xl md:text-3xl font-bold text-gray-900 mb-4 mt-8">Financial Breakdown Visualizations</h3>
+                <div class="treemap-container">
+                    <h4 class="text-xl font-semibold text-gray-700 mb-4">Annual Revenue & Operating Breakdown</h4>
+                    <div id="revenue-treemap" class="w-full h-80"></div>
+                </div>
+
+                <div class="treemap-container">
+                    <h4 class="text-xl font-semibold text-gray-700 mb-4">Annual Profit & Other Items</h4>
+                    <div id="other-income-treemap" class="w-full h-80"></div>
+                </div>
+
             </div>
         </div>
     </div>
@@ -217,7 +309,20 @@
         const ttmPatEl = document.getElementById('ttmPat');
         const currentPriceEl = document.getElementById('currentPrice');
         const totalSharesEl = document.getElementById('totalShares');
-        
+        const currentPEEl = document.getElementById('currentPE');
+        const bookValueEl = document.getElementById('bookValue');
+        const pbRatioEl = document.getElementById('pbRatio');
+        // New references for the added fields
+        const descriptionEl = document.getElementById('description');
+        const dividendYieldEl = document.getElementById('dividendYield');
+        const dividendPerShareEl = document.getElementById('dividendPerShare');
+        const exDividendDateEl = document.getElementById('exDividendDate');
+        const ebitdaEl = document.getElementById('ebitda');
+        const epsEl = document.getElementById('eps');
+        const analystTargetPriceEl = document.getElementById('analystTargetPrice');
+        const fiftyTwoWeekHighEl = document.getElementById('fiftyTwoWeekHigh');
+        const fiftyTwoWeekLowEl = document.getElementById('fiftyTwoWeekLow');
+
         // Projection Input fields
         const exitYearEl = document.getElementById('exitYear');
         const peBullEl = document.getElementById('peBull');
@@ -235,9 +340,13 @@
         const baseResultsEl = document.getElementById('base-results');
         const bearResultsEl = document.getElementById('bear-results');
 
+        // Treemap containers
+        const revenueTreemapEl = document.getElementById('revenue-treemap');
+        const otherIncomeTreemapEl = document.getElementById('other-income-treemap');
+
         // --- Utility Functions ---
         function formatNumber(num) {
-            if (isNaN(num) || num === null) return 'N/A';
+            if (isNaN(num) || num === null || num === undefined) return 'N/A';
             return num.toLocaleString('en-US', { maximumFractionDigits: 2 });
         }
 
@@ -281,6 +390,7 @@
             apiErrorMessage.textContent = '';
             clearFinancials();
             clearResults();
+            clearTreemaps(); // Clear treemaps on new fetch
 
             const overviewUrl = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${ticker}&apikey=${API_KEY}`;
             const incomeUrl = `https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol=${ticker}&apikey=${API_KEY}`;
@@ -302,14 +412,16 @@
                     throw new Error('API limit reached. Please wait a minute and try again.');
                 }
                 if (!overviewData.Symbol || !incomeData.symbol || !quoteData['Global Quote'] || Object.keys(quoteData['Global Quote']).length === 0) {
-                     throw new Error(`Invalid ticker or no data available for "${ticker}".`);
+                    throw new Error(`Invalid ticker or no data available for "${ticker}".`);
                 }
 
                 populateFinancials(overviewData, incomeData, quoteData);
+                renderTreemaps(incomeData); // Render treemaps after data is fetched and populated
 
             } catch (error) {
                 apiErrorMessage.textContent = error.message;
                 clearFinancials();
+                clearTreemaps();
             } finally {
                 setLoadingState(false);
             }
@@ -326,18 +438,40 @@
             const pat = parseFloat(latestAnnualReport.netIncome) / 1_000_000;
             const shares = parseFloat(overview.SharesOutstanding) / 1_000_000;
             const price = parseFloat(quote['Global Quote']['05. price']);
+            const currentPE = parseFloat(overview.PERatio);
+            const bookValuePerShare = parseFloat(overview.BookValuePerShare);
+            const pbRatio = price / bookValuePerShare; // Calculate PB Ratio
 
             companyNameDisplay.textContent = overview.Name;
             ttmRevenueEl.value = revenue.toFixed(2);
             ttmPatEl.value = pat.toFixed(2);
             totalSharesEl.value = shares.toFixed(2);
             currentPriceEl.value = price.toFixed(2);
+            currentPEEl.value = currentPE.toFixed(2);
+            bookValueEl.value = bookValuePerShare.toFixed(2);
+            pbRatioEl.value = pbRatio.toFixed(2);
             
+            // Populate new fields
+            descriptionEl.value = overview.Description || 'N/A';
+            dividendYieldEl.value = (parseFloat(overview.DividendYield) * 100).toFixed(2) + '%' || 'N/A';
+            dividendPerShareEl.value = formatNumber(parseFloat(overview.DividendPerShare));
+            exDividendDateEl.value = overview.ExDividendDate || 'N/A';
+            ebitdaEl.value = formatNumber(parseFloat(overview.EBITDA) / 1_000_000);
+            epsEl.value = formatNumber(parseFloat(overview.EPS));
+            analystTargetPriceEl.value = formatNumber(parseFloat(overview.AnalystTargetPrice));
+            fiftyTwoWeekHighEl.value = formatNumber(parseFloat(overview['52WeekHigh']));
+            fiftyTwoWeekLowEl.value = formatNumber(parseFloat(overview['52WeekLow']));
+
             // Update labels to show units
             document.querySelector('label[for="ttmRevenue"]').textContent = `TTM Revenue (in M ${overview.Currency})`;
             document.querySelector('label[for="ttmPat"]').textContent = `TTM PAT (in M ${overview.Currency})`;
             document.querySelector('label[for="totalShares"]').textContent = `Total Shares (in M)`;
             document.querySelector('label[for="currentPrice"]').textContent = `Current Price (${currencySymbol})`;
+            document.querySelector('label[for="bookValue"]').textContent = `Book Value Per Share (${currencySymbol})`;
+            document.querySelector('label[for="ebitda"]').textContent = `EBITDA (in M ${overview.Currency})`;
+            document.querySelector('label[for="analystTargetPrice"]').textContent = `Analyst Target Price (${currencySymbol})`;
+            document.querySelector('label[for="fiftyTwoWeekHigh"]').textContent = `52 Week High (${currencySymbol})`;
+            document.querySelector('label[for="fiftyTwoWeekLow"]').textContent = `52 Week Low (${currencySymbol})`;
         }
         
         function clearFinancials() {
@@ -346,12 +480,30 @@
             ttmPatEl.value = '';
             totalSharesEl.value = '';
             currentPriceEl.value = '';
+            currentPEEl.value = '';
+            bookValueEl.value = '';
+            pbRatioEl.value = '';
+            // Clear new fields
+            descriptionEl.value = '';
+            dividendYieldEl.value = '';
+            dividendPerShareEl.value = '';
+            exDividendDateEl.value = '';
+            ebitdaEl.value = '';
+            epsEl.value = '';
+            analystTargetPriceEl.value = '';
+            fiftyTwoWeekHighEl.value = '';
+            fiftyTwoWeekLowEl.value = '';
         }
 
         function clearResults() {
             bullResultsEl.innerHTML = '';
             baseResultsEl.innerHTML = '';
             bearResultsEl.innerHTML = '';
+        }
+
+        function clearTreemaps() {
+            revenueTreemapEl.innerHTML = '';
+            otherIncomeTreemapEl.innerHTML = '';
         }
 
         // --- Core Calculation Logic ---
@@ -412,6 +564,139 @@
                 ${createMetricHTML('CAGR Returns', `${(calcs.cagr * 100).toFixed(2)}%`, true)}
             `;
         }
+
+        // --- Treemap Functions ---
+        function renderTreemaps(incomeData) {
+            clearTreemaps(); // Clear previous treemaps
+
+            if (!incomeData || !incomeData.annualReports || incomeData.annualReports.length === 0) {
+                revenueTreemapEl.textContent = 'No annual income statement data available for treemaps.';
+                otherIncomeTreemapEl.textContent = 'No annual income statement data available for treemaps.';
+                return;
+            }
+
+            const latestAnnualReport = incomeData.annualReports[0];
+
+            // Convert values to numbers and handle potential missing data
+            const totalRevenue = parseFloat(latestAnnualReport.totalRevenue) || 0;
+            const costOfRevenue = parseFloat(latestAnnualReport.costOfRevenue) || 0;
+            const grossProfit = parseFloat(latestAnnualReport.grossProfit) || 0;
+            const operatingIncome = parseFloat(latestAnnualReport.operatingIncome) || 0;
+            const nonOperatingIncome = parseFloat(latestAnnualReport.nonOperatingIncome) || 0;
+            const interestExpense = parseFloat(latestAnnualReport.interestExpense) || 0;
+            const incomeTaxExpense = parseFloat(latestAnnualReport.incomeTaxExpense) || 0;
+            const netIncome = parseFloat(latestAnnualReport.netIncome) || 0;
+            const incomeBeforeTax = parseFloat(latestAnnualReport.incomeBeforeTax) || 0;
+
+            // Calculate derived values, ensuring positive for treemap sizing
+            const operatingExpenses = Math.max(0, grossProfit - operatingIncome); // Ensure positive
+            const otherNonOperatingNet = Math.max(0, incomeBeforeTax - operatingIncome + interestExpense); // Simplified calculation
+
+            // Data for Revenue & Operating Breakdown Treemap
+            const revenueTreemapData = {
+                name: "Revenue & Operating Breakdown",
+                children: [
+                    { name: "Total Revenue", value: totalRevenue, type: "profit" },
+                    { name: "Cost of Revenue", value: Math.abs(costOfRevenue), type: "expense" },
+                    { name: "Gross Profit", value: grossProfit, type: "profit" },
+                    { name: "Operating Expenses", value: operatingExpenses, type: "expense" },
+                    { name: "Operating Income", value: operatingIncome, type: "profit" }
+                ].filter(d => d.value > 0) // Filter out zero or negative values for treemap sizing
+            };
+
+            // Data for Other Income/Expenses & Net Income Treemap
+            const otherIncomeTreemapData = {
+                name: "Profit & Other Items",
+                children: [
+                    { name: "Income Before Tax", value: incomeBeforeTax, type: "profit" },
+                    { name: "Non-Operating Income", value: Math.abs(nonOperatingIncome), type: nonOperatingIncome >= 0 ? "profit" : "expense" },
+                    { name: "Interest Expense", value: Math.abs(interestExpense), type: "expense" },
+                    { name: "Income Tax Expense", value: Math.abs(incomeTaxExpense), type: "expense" },
+                    { name: "Net Income", value: netIncome, type: "profit" }
+                ].filter(d => d.value > 0)
+            };
+
+            drawTreemap(revenueTreemapData, revenueTreemapEl);
+            drawTreemap(otherIncomeTreemapData, otherIncomeTreemapEl);
+        }
+
+        function drawTreemap(data, containerElement) {
+            const width = containerElement.clientWidth;
+            const height = containerElement.clientHeight;
+
+            const svg = d3.select(containerElement).append("svg")
+                .attr("width", width)
+                .attr("height", height)
+                .style("font", "10px sans-serif");
+
+            const treemap = d3.treemap()
+                .size([width, height])
+                .padding(1);
+
+            const root = d3.hierarchy(data)
+                .sum(d => d.value)
+                .sort((a, b) => b.value - a.value);
+
+            treemap(root);
+
+            const cell = svg.selectAll("g")
+                .data(root.leaves())
+                .enter().append("g")
+                .attr("transform", d => `translate(${d.x0},${d.y0})`)
+                .attr("class", d => `treemap-node ${d.data.type}`); // Add class for styling
+
+            cell.append("rect")
+                .attr("width", d => d.x1 - d.x0)
+                .attr("height", d => d.y1 - d.y0);
+
+            cell.append("text")
+                .attr("x", 4)
+                .attr("y", 14)
+                .text(d => {
+                    const label = d.data.name;
+                    const value = formatNumber(d.data.value);
+                    const rectWidth = d.x1 - d.x0;
+                    const rectHeight = d.y1 - d.y0;
+
+                    // Only display text if the rectangle is large enough
+                    if (rectWidth > 30 && rectHeight > 20) {
+                        return `${label} (${value}M)`;
+                    }
+                    return '';
+                })
+                .call(wrapText, d => d.x1 - d.x0 - 8); // Wrap text within the rectangle
+
+            // Tooltip functionality
+            cell.append("title")
+                .text(d => `${d.data.name}: ${formatNumber(d.data.value)}M`);
+        }
+
+        // Function to wrap text in D3
+        function wrapText(text, width) {
+            text.each(function() {
+                var text = d3.select(this),
+                    words = text.text().split(/\s+/).reverse(),
+                    word,
+                    line = [],
+                    lineNumber = 0,
+                    lineHeight = 1.1, // ems
+                    y = text.attr("y"),
+                    x = text.attr("x"),
+                    dy = parseFloat(text.attr("dy") || 0),
+                    tspan = text.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
+                while (word = words.pop()) {
+                    line.push(word);
+                    tspan.text(line.join(" "));
+                    if (tspan.node().getComputedTextLength() > width(this)) {
+                        line.pop();
+                        tspan.text(line.join(" "));
+                        line = [word];
+                        tspan = text.append("tspan").attr("x", x).attr("y", y).attr("dy", ++lineNumber * lineHeight + dy + "em").text(word);
+                    }
+                }
+            });
+        }
+
 
         // --- Event Listeners ---
         fetchDataBtn.addEventListener('click', fetchFinancialData);
