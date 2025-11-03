@@ -165,6 +165,10 @@
                             <label for="totalShares" class="input-label">Total Shares</label>
                             <input type="text" id="totalShares" class="input-field">
                         </div>
+                         <div class="input-group">
+                            <label for="eps" class="input-label">EPS (TTM)</label>
+                            <input type="text" id="eps" class="input-field">
+                        </div>
                         <div class="input-group">
                             <label for="currentPE" class="input-label">Current PE Ratio</label>
                             <input type="text" id="currentPE" class="input-field">
@@ -192,10 +196,6 @@
                         <div class="input-group">
                             <label for="ebitda" class="input-label">EBITDA</label>
                             <input type="text" id="ebitda" class="input-field">
-                        </div>
-                        <div class="input-group">
-                            <label for="eps" class="input-label">EPS (TTM)</label>
-                            <input type="text" id="eps" class="input-field">
                         </div>
                         <div class="input-group">
                             <label for="analystTargetPrice" class="input-label">Analyst Target Price</label>
@@ -476,7 +476,7 @@
             const price = parseFloat(quote['Global Quote']['05. price']);
             const currentPE = parseFloat(overview.PERatio);
             const bookValuePerShare = parseFloat(overview.BookValuePerShare);
-            const pbRatio = price / bookValuePerShare; // Calculate PB Ratio
+            const pbRatio = (bookValuePerShare > 0) ? (price / bookValuePerShare) : 0; // Calculate PB Ratio
 
             // --- Prepare formatted values ---
             const data = {
@@ -585,6 +585,27 @@
             baseResultsEl.innerHTML = '';
             bearResultsEl.innerHTML = '';
             summaryTextEl.textContent = '';
+        }
+
+        // --- Live Ratio Calculation Functions ---
+        function updateCurrentPE() {
+            const price = getFloatValue(currentPriceEl);
+            const eps = getFloatValue(epsEl);
+            if (eps > 0) {
+                currentPEEl.value = formatNumber(price / eps);
+            } else {
+                currentPEEl.value = 'N/A';
+            }
+        }
+        
+        function updatePbRatio() {
+            const price = getFloatValue(currentPriceEl);
+            const bookValue = getFloatValue(bookValueEl);
+             if (bookValue > 0) {
+                pbRatioEl.value = formatNumber(price / bookValue);
+            } else {
+                pbRatioEl.value = 'N/A';
+            }
         }
 
         // --- Core Calculation Logic ---
@@ -771,7 +792,7 @@
 
                     <!-- Target PE (Only required for the final year) -->
                     <div class="input-group ${!isLastYear ? 'hidden' : ''}">
-                        <label class="${labelPEClass}">Target PE Ratio (Applies to Year ${i})</label>
+                        <label class/"${labelPEClass}">Target PE Ratio (Applies to Year ${i})</label>
                         <div class="grid grid-cols-3 gap-2">
                             <input type="number" id="pe-bull-y${i}" class="input-field text-center text-green-700" value="30" placeholder="Bull">
                             <input type="number" id="pe-base-y${i}" class="input-field text-center text-yellow-700" value="25" placeholder="Base">
@@ -786,6 +807,13 @@
         // --- Event Listeners ---
         fetchDataBtn.addEventListener('click', fetchFinancialData);
         resetFinancialsBtn.addEventListener('click', resetFinancialsToCached);
+        
+        // --- NEW: Add event listeners for live ratio updates ---
+        currentPriceEl.addEventListener('input', updateCurrentPE);
+        epsEl.addEventListener('input', updateCurrentPE);
+        currentPriceEl.addEventListener('input', updatePbRatio);
+        bookValueEl.addEventListener('input', updatePbRatio);
+        
         projectionModeToggle.addEventListener('change', (e) => {
             const isComplex = e.target.checked;
             if (isComplex) {
@@ -819,14 +847,14 @@
                  clearResults();
             } else {
                 apiErrorMessage.textContent = '';
-                fetchFinancialData(); // Fetch US data if switching back
+                // Don't auto-fetch, just clear the error
             }
         });
 
         // Initial setup
         window.addEventListener('load', () => {
             generateComplexInputs(); // Pre-generate default 5 years for complex mode
-            fetchFinancialData(); // Fetch data for default ticker on load
+            // fetchFinancialData(); // <-- REMOVED this line to prevent auto-load
         });
     </script>
 </body>
