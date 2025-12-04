@@ -219,7 +219,8 @@
 
                     <div class="input-group">
                         <label for="exitYear" class="input-label">Exit Year (Years from now)</label>
-                        <input type="number" id="exitYear" class="input-field" value="5" oninput="generateComplexInputs()">
+                        <input type="number" id="exitYear" class="input-field" value="5" min="0" oninput="generateComplexInputs()">
+                        <p class="text-xs text-gray-500 mt-1">Enter '0' to re-value based on today's earnings.</p>
                     </div>
 
                     <!-- SIMPLE MODE INPUTS -->
@@ -466,17 +467,33 @@
             const currencySymbol = overview.Currency === 'USD' ? '$' : '₹'; // Assuming INR for non-USD
             const unitSuffix = overview.Currency === 'USD' ? 'USD' : 'INR';
 
-            // Use latest annual report for TTM data
-            const latestAnnualReport = income.annualReports[0];
+            // --- IMPROVED DATA EXTRACTION ---
+            // Use TTM data from OVERVIEW endpoint for consistency if available
+            // Fallback to Annual Reports only if TTM is missing
             
-            // Convert numbers to millions for easier reading
-            const revenue = parseFloat(latestAnnualReport.totalRevenue) / 1_000_000;
-            const pat = parseFloat(latestAnnualReport.netIncome) / 1_000_000;
             const shares = parseFloat(overview.SharesOutstanding) / 1_000_000;
             const price = parseFloat(quote['Global Quote']['05. price']);
+            const eps = parseFloat(overview.EPS);
             const currentPE = parseFloat(overview.PERatio);
             const bookValuePerShare = parseFloat(overview.BookValuePerShare);
             const pbRatio = (bookValuePerShare > 0) ? (price / bookValuePerShare) : 0; // Calculate PB Ratio
+
+            // 1. Calculate TTM Revenue
+            // Prefer RevenueTTM from Overview (most recent). Fallback to Annual Report.
+            let revenue = parseFloat(overview.RevenueTTM) / 1_000_000;
+            if (isNaN(revenue) && income.annualReports && income.annualReports.length > 0) {
+                 revenue = parseFloat(income.annualReports[0].totalRevenue) / 1_000_000;
+            }
+
+            // 2. Calculate TTM PAT (Net Income)
+            // Priority: Derived from EPS * Shares (Ensures Price = PE * PAT/Shares consistency) 
+            // -> Fallback to Annual Report (Last Fiscal Year)
+            let pat = eps * shares;
+            
+            // If EPS-based calculation fails, try annual report
+            if (isNaN(pat) && income.annualReports && income.annualReports.length > 0) {
+                 pat = parseFloat(income.annualReports[0].netIncome) / 1_000_000;
+            }
 
             // --- Prepare formatted values ---
             const data = {
@@ -616,10 +633,11 @@
             const ttmPat = getFloatValue(ttmPatEl);
             const currentPrice = getFloatValue(currentPriceEl);
             const totalShares = getFloatValue(totalSharesEl);
-            const exitYear = parseInt(exitYearEl.value) || 0;
+            const exitYear = parseInt(exitYearEl.value); // Removed default || 0 to strictly check
 
-            if (totalShares <= 0 || currentPrice <= 0 || exitYear <= 0) {
-                calcErrorMessage.textContent = 'Please fetch data and ensure Current Price, Total Shares, and Exit Year are valid positive numbers.';
+            // Validation: Allow Exit Year to be 0
+            if (totalShares <= 0 || currentPrice <= 0 || isNaN(exitYear) || exitYear < 0) {
+                calcErrorMessage.textContent = 'Please fetch data and ensure Current Price, Total Shares, and Exit Year (>=0) are valid.';
                 clearResults();
                 return;
             }
@@ -633,7 +651,9 @@
                 bullCalcs = calculateComplexScenario(ttmRevenue, ttmPat, currentPrice, totalShares, exitYear, inputs.bull);
                 baseCalcs = calculateComplexScenario(ttmRevenue, ttmPat, currentPrice, totalShares, exitYear, inputs.base);
                 bearCalcs = calculateComplexScenario(ttmRevenue, ttmPat, currentPrice, totalShares, exitYear, inputs.bear);
-                summaryTextEl.textContent = `Complex Mode: Projections based on custom year-by-year inputs over ${exitYear} years.`;
+                summaryTextEl.textContent = exitYear === 0 
+                    ? `Complex Mode: Current re-rating based on target PE inputs.`
+                    : `Complex Mode: Projections based on custom year-by-year inputs over ${exitYear} years.`;
             } else {
                 // SIMPLE MODE CALCULATION
                 const inputs = {
@@ -644,7 +664,9 @@
                 bullCalcs = calculateSimpleScenario(ttmRevenue, ttmPat, currentPrice, totalShares, exitYear, inputs.pe.bull, inputs.revGrowth.bull, inputs.patGrowth.bull);
                 baseCalcs = calculateSimpleScenario(ttmRevenue, ttmPat, currentPrice, totalShares, exitYear, inputs.pe.base, inputs.revGrowth.base, inputs.patGrowth.base);
                 bearCalcs = calculateSimpleScenario(ttmRevenue, ttmPat, currentPrice, totalShares, exitYear, inputs.pe.bear, inputs.revGrowth.bear, inputs.patGrowth.bear);
-                summaryTextEl.textContent = `Simple Mode: Projections based on a constant compound annual growth rate over ${exitYear} years.`;
+                summaryTextEl.textContent = exitYear === 0 
+                    ? `Simple Mode: Current re-rating based on target PE inputs.`
+                    : `Simple Mode: Projections based on a constant compound annual growth rate over ${exitYear} years.`;
             }
 
             displayResults(bullResultsEl, bullCalcs);
@@ -655,6 +677,16 @@
         // Simple Mode: Constant Compound Growth
         function calculateSimpleScenario(ttmRevenue, ttmPat, currentPrice, totalShares, exitYear, futurePe, revGrowth, patGrowth) {
             
+            if (exitYear === 0) {
+                const futureRevenue = ttmRevenue;
+                const futurePat = ttmPat;
+                const futureMarketCap = futurePat * futurePe;
+                const futurePrice = futureMarketCap / totalShares;
+                // Avoid division by zero in power function, calculate simple percentage return
+                const cagr = (futurePrice - currentPrice) / currentPrice; 
+                return { futureRevenue, futurePat, futurePe, futureMarketCap, futurePrice, cagr };
+            }
+
             const futureRevenue = ttmRevenue * Math.pow(1 + revGrowth, exitYear);
             
             let futurePat;
@@ -675,6 +707,19 @@
 
         // Complex Mode: Year-by-Year Growth
         function calculateComplexScenario(ttmRevenue, ttmPat, currentPrice, totalShares, exitYear, annualInputs) {
+            
+            // Handle Year 0 Re-rating
+            if (exitYear === 0) {
+                const input = annualInputs[0]; // Get Year 0 inputs
+                const futureRevenue = ttmRevenue;
+                const futurePat = ttmPat;
+                const futurePe = input.pe;
+                const futureMarketCap = futurePat * futurePe;
+                const futurePrice = futureMarketCap / totalShares;
+                const cagr = (futurePrice - currentPrice) / currentPrice;
+                return { futureRevenue, futurePat, futurePe, futureMarketCap, futurePrice, cagr };
+            }
+
             let currentRevenue = ttmRevenue;
             let currentPat = ttmPat;
             let finalPE = 0;
@@ -714,6 +759,15 @@
         
         function getComplexInputs(exitYear) {
             const inputs = { bull: {}, base: {}, bear: {} };
+
+            // Handle Year 0 inputs
+            if (exitYear === 0) {
+                inputs.bull[0] = { pe: getFloatValue(document.getElementById('pe-bull-y0')), revGrowth: 0, patGrowth: 0 };
+                inputs.base[0] = { pe: getFloatValue(document.getElementById('pe-base-y0')), revGrowth: 0, patGrowth: 0 };
+                inputs.bear[0] = { pe: getFloatValue(document.getElementById('pe-bear-y0')), revGrowth: 0, patGrowth: 0 };
+                return inputs;
+            }
+
             for (let i = 1; i <= exitYear; i++) {
                 inputs.bull[i] = {
                     revGrowth: getFloatValue(document.getElementById(`rev-bull-y${i}`)) / 100,
@@ -739,14 +793,18 @@
             const currency = document.querySelector('label[for="currentPrice"]').textContent.includes('$') ? '$' : '₹';
             const unitMatch = document.querySelector('label[for="ttmRevenue"]').textContent.match(/\(in (.*?) /);
             const unit = unitMatch ? unitMatch[1] : ''; 
-            
+            const exitYear = parseInt(exitYearEl.value);
+
+            const cagrLabel = exitYear === 0 ? "Potential Upside" : "CAGR Returns";
+            const peLabel = exitYear === 0 ? "Target PE (Current)" : `Terminal PE (Year ${exitYear})`;
+
             element.innerHTML = `
                 ${createMetricHTML(`Projected Revenue (${unit})`, `${currency} ${formatNumber(calcs.futureRevenue)}`)}
                 ${createMetricHTML(`Projected PAT (${unit})`, `${currency} ${formatNumber(calcs.futurePat)}`)}
-                ${createMetricHTML(`Terminal PE (Year ${exitYearEl.value})`, formatNumber(calcs.futurePe))}
+                ${createMetricHTML(peLabel, formatNumber(calcs.futurePe))}
                 ${createMetricHTML(`Projected Market Cap (${unit})`, `${currency} ${formatNumber(calcs.futureMarketCap)}`)}
                 ${createMetricHTML(`Projected Price`, `${currency} ${formatNumber(calcs.futurePrice)}`)}
-                ${createMetricHTML('CAGR Returns', `${(calcs.cagr * 100).toFixed(2)}%`, true)}
+                ${createMetricHTML(cagrLabel, `${(calcs.cagr * 100).toFixed(2)}%`, true)}
             `;
         }
 
@@ -756,10 +814,31 @@
             dynamicProjectionsDiv.innerHTML = ''; // Clear previous inputs
             finalYearDisplay.textContent = exitYear;
 
-            if (isNaN(exitYear) || exitYear <= 0) {
+            if (isNaN(exitYear) || exitYear < 0) {
                 return;
             }
 
+            // --- Special Handling for Year 0 ---
+            if (exitYear === 0) {
+                const yearBlock = document.createElement('div');
+                yearBlock.className = 'border-b pb-4 mb-4';
+                yearBlock.innerHTML = `
+                    <h4 class="font-semibold text-md mb-3 text-indigo-700">Current Valuation Re-rating</h4>
+                    <p class="text-xs text-gray-500 mb-2">Since Exit Year is 0, growth rates are ignored. Adjust the Target PE below to see immediate valuation impact.</p>
+                    <div class="input-group">
+                        <label class="input-label">Target PE Ratio</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <input type="number" id="pe-bull-y0" class="input-field text-center text-green-700" value="30" placeholder="Bull">
+                            <input type="number" id="pe-base-y0" class="input-field text-center text-yellow-700" value="25" placeholder="Base">
+                            <input type="number" id="pe-bear-y0" class="input-field text-center text-red-700" value="20" placeholder="Bear">
+                        </div>
+                    </div>
+                `;
+                dynamicProjectionsDiv.appendChild(yearBlock);
+                return;
+            }
+
+            // --- Standard Handling for Year 1+ ---
             for (let i = 1; i <= exitYear; i++) {
                 const isLastYear = i === exitYear;
                 const labelText = isLastYear ? 'Terminal PE' : 'PE (Hidden)'; // Hide PE until the last year
